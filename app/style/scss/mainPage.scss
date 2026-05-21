@@ -137,8 +137,15 @@ body {
     justify-content: space-between;
 
     .extra-lives {
-      align-items: flex-start;
+      align-items: center;
       display: flex;
+      gap: 0.5rem;
+
+      img {
+        display: block;
+        pointer-events: none;
+        user-select: none;
+      }
     }
 
     .fruit-display {

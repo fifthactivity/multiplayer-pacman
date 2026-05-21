@@ -8,9 +8,12 @@ class MultiplayerManager {
     this.isHost = false;
     this.playerName = null;
 
-    this.roomIdDisplay = document.getElementById('room-id');
-    this.playerList = document.getElementById('player-list');
-    this.playerCount = document.getElementById('player-count');
+    this.hostRoomIdDisplay = document.getElementById('host-room-code');
+    this.joinRoomIdDisplay = document.getElementById('join-room-code');
+    this.hostPlayerList = document.getElementById('host-player-list');
+    this.joinPlayerList = document.getElementById('join-player-list');
+    this.hostPlayerCount = document.getElementById('host-player-count');
+    this.joinPlayerCount = document.getElementById('join-player-count');
     this.startButton = document.getElementById('game-start');
     this.menuActions = document.getElementById('menu-actions');
     this.hostPanel = document.getElementById('host-panel');
@@ -22,6 +25,9 @@ class MultiplayerManager {
     this.hostMenuButton = document.getElementById('host-menu');
     this.joinMenuButton = document.getElementById('join-menu');
     this.hostLobby = document.getElementById('host-lobby');
+    this.joinLobby = document.getElementById('join-lobby');
+    this.hostSetup = document.getElementById('host-setup');
+    this.joinSetup = document.getElementById('join-setup');
 
     this.initUi();
   }
@@ -49,10 +55,13 @@ class MultiplayerManager {
     this.peer = roomId ? new Peer(roomId) : new Peer();
     this.peer.on('open', (id) => {
       this.peerId = id;
+      this.playerNames[id] = this.playerName || 'Player';
       if (this.isHost) {
         this.roomId = id;
         this.playerNames[id] = this.playerName || 'Host';
-        if (this.roomIdDisplay) this.roomIdDisplay.innerText = id;
+        if (this.hostRoomIdDisplay) this.hostRoomIdDisplay.innerText = id;
+        this.updatePlayerList();
+        this.broadcastPlayerList();
         this.showHostLobby();
       }
     });
@@ -73,22 +82,30 @@ class MultiplayerManager {
   }
 
   showHostLobby() {
-    const hostSetup = document.getElementById('host-setup');
-    if (hostSetup) hostSetup.classList.add('hidden');
+    if (this.hostSetup) this.hostSetup.classList.add('hidden');
     if (this.hostLobby) this.hostLobby.classList.remove('hidden');
+  }
+
+  showJoinLobby() {
+    if (this.joinSetup) this.joinSetup.classList.add('hidden');
+    if (this.joinLobby) this.joinLobby.classList.remove('hidden');
   }
 
   showHostPanel() {
     if (this.menuActions) this.menuActions.classList.add('hidden');
     if (this.hostPanel) this.hostPanel.classList.remove('hidden');
     if (this.joinPanel) this.joinPanel.classList.add('hidden');
+    if (this.hostSetup) this.hostSetup.classList.remove('hidden');
     if (this.hostLobby) this.hostLobby.classList.add('hidden');
+    if (this.joinLobby) this.joinLobby.classList.add('hidden');
   }
 
   showJoinPanel() {
     if (this.menuActions) this.menuActions.classList.add('hidden');
     if (this.joinPanel) this.joinPanel.classList.remove('hidden');
     if (this.hostPanel) this.hostPanel.classList.add('hidden');
+    if (this.joinSetup) this.joinSetup.classList.remove('hidden');
+    if (this.joinLobby) this.joinLobby.classList.add('hidden');
   }
 
   startHosting() {
@@ -113,6 +130,7 @@ class MultiplayerManager {
     const conn = this.peer.connect(roomId);
     conn.on('open', () => {
       this.registerConnection(conn);
+      this.showJoinLobby();
       conn.send({ type: 'introduce', id: this.peerId, name: this.playerName });
     });
     conn.on('error', (err) => console.warn('Connection error', err));
@@ -125,15 +143,17 @@ class MultiplayerManager {
     conn.on('data', (data) => this.handleMessage(conn, data));
     conn.on('close', () => {
       delete this.connections[remoteId];
+      delete this.playerNames[remoteId];
       this.updatePlayerList();
+      if (this.isHost) this.broadcastPlayerList();
     });
 
-    // For host: ask for identification
     if (this.isHost) {
       conn.send({ type: 'request_introduce' });
     }
 
     this.updatePlayerList();
+    if (this.isHost) this.broadcastPlayerList();
   }
 
   handleMessage(conn, data) {
@@ -143,30 +163,65 @@ class MultiplayerManager {
       if (this.isHost) {
         this.playerNames[remoteId] = data.name || remoteId;
         this.updatePlayerList();
+        this.broadcastPlayerList();
       }
     } else if (data.type === 'request_introduce') {
       conn.send({ type: 'introduce', id: this.peerId, name: this.playerName || 'Player' });
+    } else if (data.type === 'player_list') {
+      if (data.roomId) {
+        this.roomId = data.roomId;
+        if (this.joinRoomIdDisplay) this.joinRoomIdDisplay.innerText = data.roomId;
+      }
+      if (Array.isArray(data.players)) {
+        data.players.forEach((player) => {
+          if (player.id && player.name) {
+            this.playerNames[player.id] = player.name;
+          }
+        });
+      }
+      this.updatePlayerList();
+      this.showJoinLobby();
+    } else if (data.type === 'start_game') {
+      window.dispatchEvent(new CustomEvent('multiplayer:start', { detail: {} }));
     } else if (data.type === 'room_full') {
       alert('Room is full');
     }
   }
 
   updatePlayerList() {
-    if (!this.playerList) return;
-    while (this.playerList.firstChild) this.playerList.removeChild(this.playerList.firstChild);
+    const players = [this.peerId].concat(Object.keys(this.connections));
+    const targetList = this.isHost ? this.hostPlayerList : this.joinPlayerList;
+    const targetCount = this.isHost ? this.hostPlayerCount : this.joinPlayerCount;
 
-    const players = this.isHost ? [this.peerId].concat(Object.keys(this.connections)) : [this.peerId];
-    players.slice(0, this.maxPlayers).forEach((p) => {
-      const li = document.createElement('li');
-      li.innerText = this.playerNames[p] || p;
-      this.playerList.appendChild(li);
-    });
+    if (targetList) {
+      while (targetList.firstChild) targetList.removeChild(targetList.firstChild);
+      players.slice(0, this.maxPlayers).forEach((p) => {
+        const li = document.createElement('li');
+        li.innerText = this.playerNames[p] || p;
+        targetList.appendChild(li);
+      });
+    }
 
-    if (this.playerCount) this.playerCount.innerText = String(Math.min(players.length, this.maxPlayers));
+    if (targetCount) targetCount.innerText = String(Math.min(players.length, this.maxPlayers));
 
     if (this.startButton) {
       this.startButton.disabled = !this.isHost || players.length === 0;
     }
+  }
+
+  broadcastPlayerList() {
+    if (!this.isHost || !this.roomId) return;
+
+    const players = [this.peerId].concat(Object.keys(this.connections)).slice(0, this.maxPlayers);
+    const payload = {
+      type: 'player_list',
+      roomId: this.roomId,
+      players: players.map((id) => ({ id, name: this.playerNames[id] || id })),
+    };
+
+    Object.values(this.connections).forEach((conn) => {
+      if (conn.open) conn.send(payload);
+    });
   }
 
   broadcast(message) {

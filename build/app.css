@@ -125,8 +125,14 @@ body {
   justify-content: space-between;
 }
 .game-ui .bottom .extra-lives {
-  align-items: flex-start;
+  align-items: center;
   display: flex;
+  gap: 0.5rem;
+}
+.game-ui .bottom .extra-lives img {
+  display: block;
+  pointer-events: none;
+  user-select: none;
 }
 .game-ui .bottom .fruit-display {
   display: flex;
